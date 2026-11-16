@@ -1,0 +1,75 @@
+name: Tourism Project Pipeline
+
+on:
+  push:
+    branches:
+      - main            # runs automatically on every push to main
+  workflow_dispatch:     # also lets you click "Run workflow" in the Actions tab
+
+permissions:
+  contents: write        # lets the training job commit the model back to the repo
+
+jobs:
+
+  register-dataset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r tourism_project/requirements.txt
+      - name: Register dataset
+        run: python tourism_project/model_building/data_register.py
+      - name: Upload registered dataset
+        uses: actions/upload-artifact@v4
+        with:
+          name: registered-data
+          path: tourism_project/data/tourism.csv
+
+  data-prep:
+    needs: register-dataset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r tourism_project/requirements.txt
+      - name: Prepare data
+        run: python tourism_project/model_building/prep.py
+      - name: Upload train/test splits
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepped-data
+          path: |
+            Xtrain.csv
+            Xtest.csv
+            ytrain.csv
+            ytest.csv
+
+  model-training:
+    needs: data-prep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r tourism_project/requirements.txt
+      - name: Download train/test splits
+        uses: actions/download-artifact@v4
+        with:
+          name: prepped-data
+      - name: Train and track model
+        run: python tourism_project/model_building/train.py
+      - name: Commit trained model back to the repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tourism_project/deployment/best_tourism_package_model_v1.joblib
+          git commit -m "Add trained model [skip ci]" || echo "No changes to commit"
+          git push
